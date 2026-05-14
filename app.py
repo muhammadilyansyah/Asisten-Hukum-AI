@@ -1,89 +1,131 @@
 import streamlit as st
-import pandas as pd
+import io
 from docx import Document
 from PyPDF2 import PdfReader
-import io
 
-# Konfigurasi Halaman & Tema
-st.set_page_config(page_title="Legal Knowledge Hub", layout="wide")
+# 1. SETUP LOGIKA PENYIMPANAN (Database Simulasi)
+if "file_system" not in st.session_state:
+    # Struktur Folder Awal
+    st.session_state.file_system = {
+        "Hukum": {
+            "Hukum Pidana": {
+                "Pidana Umum": {},
+                "Pidana Khusus": {},
+                "Files": [] # Tempat menyimpan file sesungguhnya
+            },
+            "Hukum Perdata": {
+                "Files": []
+            },
+            "Files": []
+        }
+    }
+if "current_path" not in st.session_state:
+    st.session_state.current_path = ["Hukum"]
 
-# --- SISTEM LOGIN GMAIL (Simulasi) ---
-if "logged_in" not in st.session_state:
-    st.title("⚖️ Legal Knowledge System")
-    st.subheader("Login dengan Akun Google untuk Akses Data Hukum")
-    if st.button("Masuk dengan Gmail"):
-        st.session_state.logged_in = True
+# 2. FUNGSI NAVIGASI FOLDER
+def get_current_folder(fs, path):
+    curr = fs
+    for folder in path:
+        curr = curr[folder]
+    return curr
+
+# 3. TAMPILAN UTAMA
+st.set_page_config(page_title="Legal Folder Manager", layout="wide")
+
+if "auth" not in st.session_state:
+    st.title("⚖️ Digital Legal Archive")
+    if st.button("Login dengan Google"):
+        st.session_state.auth = True
         st.rerun()
     st.stop()
 
-# --- DATABASE SEDERHANA (Session State) ---
-if "folders" not in st.session_state:
-    st.session_state.folders = {"Arsip Utama": {"Undang-Undang": {}, "Putusan": {}, "Draft": {}}}
-if "connections" not in st.session_state:
-    st.session_state.connections = []
-
-# --- SIDEBAR: NAVIGASI FOLDER BERLAPIS ---
-st.sidebar.title("📁 Struktur Folder")
-def show_folders(d, path=""):
-    for folder in d.keys():
-        if st.sidebar.button(f"📂 {folder}", key=path+folder):
-            st.session_state.current_folder = folder
-
-show_folders(st.session_state.folders)
-
-# --- MENU UTAMA ---
-st.title("⚖️ Sistem Informasi Hukum Terkoneksi")
-tab1, tab2, tab3, tab4 = st.tabs(["Penyimpanan & Upload", "Edit & Buat File", "Jaringan Koneksi (Graph)", "Pencarian Dalam"])
-
-with tab1:
-    st.subheader("Upload Dokumen Hukum")
-    up_file = st.file_uploader("Upload PDF, Word, atau Excel", type=['pdf', 'docx', 'xlsx'])
-    if up_file:
-        st.success(f"File {up_file.name} berhasil disimpan di folder aktif.")
-
-with tab2:
-    st.subheader("Buat & Edit File Hukum")
-    f_name = st.text_input("Nama Dokumen:", "Putusan_Baru_2026")
-    f_type = st.selectbox("Pilih Format:", ["Word (.docx)", "Excel (.xlsx)", "PDF (Export Only)"])
-    content = st.text_area("Tulis/Edit Isi Pasal atau Putusan:", height=300)
+# --- SIDEBAR: NAVIGASI ---
+with st.sidebar:
+    st.header("📂 Explorer")
+    if st.button("🏠 Ke Root (Awal)"):
+        st.session_state.current_path = ["Hukum"]
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Simpan Ke Folder"):
-            st.toast("Tersimpan secara aman!")
-    with col2:
-        # Fitur Download untuk Word
-        if f_type == "Word (.docx)":
-            doc = Document()
-            doc.add_paragraph(content)
-            bio = io.BytesIO()
-            doc.save(bio)
-            st.download_button("Download File", bio.getvalue(), f"{f_name}.docx")
+    st.divider()
+    st.write(f"**Lokasi Saat Ini:** \n` {' > '.join(st.session_state.current_path)} `")
 
-with tab3:
-    st.subheader("🔗 Hubungkan Pasal & Aturan")
-    st.write("Hubungkan kalimat di satu dokumen ke dokumen hukum lainnya.")
-    
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        sumber = st.text_input("Dari Pasal/Kata (Dokumen A):", placeholder="Contoh: Pasal 1 UU ITE")
-    with c2:
-        relasi = st.selectbox("Jenis Hubungan:", ["Berhubungan dengan", "Bertentangan dengan", "Aturan Turunan dari", "Dirujuk oleh"])
-    with c3:
-        tujuan = st.text_input("Ke Pasal/Dokumen (Dokumen B):", placeholder="Contoh: Putusan MA No. 123")
-    
-    if st.button("Jalin Koneksi"):
-        st.session_state.connections.append(f"{sumber} --({relasi})--> {tujuan}")
-        st.success("Koneksi hukum berhasil dibuat!")
-    
-    st.write("### Daftar Koneksi Aktif:")
-    for conn in st.session_state.connections:
-        st.info(conn)
+# --- KONTEN UTAMA ---
+st.title("📚 Manajemen Dokumen Hukum")
 
-with tab4:
-    st.subheader("Pencarian Mendalam")
-    query = st.text_input("Cari kata hukum atau nomor perkara:")
-    if query:
-        st.write(f"Mencari '{query}' di seluruh folder dan jaringan koneksi...")
-        st.warning("Hasil: Ditemukan di UU No. 1 2024 dan terkoneksi ke Putusan MK No. 5.")
+curr_folder = get_current_folder(st.session_state.file_system, st.session_state.current_path)
+
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("Sub-Folder")
+    # Menampilkan Folder di dalam Folder aktif
+    subfolders = [f for f in curr_folder.keys() if f != "Files"]
+    for f in subfolders:
+        if st.button(f"📁 {f}", key=f):
+            st.session_state.current_path.append(f)
+            st.rerun()
+    
+    st.divider()
+    new_f = st.text_input("Buat Folder Baru:")
+    if st.button("Tambah Folder"):
+        if new_f and new_f not in curr_folder:
+            curr_folder[new_f] = {"Files": []}
+            st.success(f"Folder '{new_f}' dibuat")
+            st.rerun()
+
+with col2:
+    st.subheader("Daftar Dokumen")
+    # Upload File ke Folder ini
+    uploaded = st.file_uploader("Upload ke folder ini", type=['pdf', 'docx', 'txt'])
+    if uploaded:
+        if "Files" not in curr_folder: curr_folder["Files"] = []
+        # Simpan file ke dalam memori aplikasi
+        file_data = {
+            "name": uploaded.name,
+            "type": uploaded.type,
+            "content": uploaded.getvalue()
+        }
+        curr_folder["Files"].append(file_data)
+        st.toast("File berhasil disimpan!")
+
+    # Menampilkan File yang sudah tersimpan
+    if "Files" in curr_folder and curr_folder["Files"]:
+        for idx, f in enumerate(curr_folder["Files"]):
+            col_f1, col_f2 = st.columns([3, 1])
+            with col_f1:
+                st.write(f"📄 {f['name']}")
+            with col_f2:
+                if st.button("Buka/Baca", key=f"btn_{idx}"):
+                    st.session_state.view_file = f
+    else:
+        st.info("Belum ada dokumen di folder ini.")
+
+# --- FITUR BACA DOKUMEN ---
+if "view_file" in st.session_state:
+    st.divider()
+    st.header(f"📖 Membaca: {st.session_state.view_file['name']}")
+    f = st.session_state.view_file
+    
+    if f['type'] == "application/pdf":
+        st.warning("Pratinjau PDF: Gunakan tombol download di bawah untuk membaca lengkap.")
+    elif "word" in f['type'] or f['name'].endswith(".docx"):
+        doc = Document(io.BytesIO(f['content']))
+        full_text = "\n".join([para.text for para in doc.paragraphs])
+        st.text_area("Isi Dokumen:", full_text, height=400)
+    
+    st.download_button("Download File Ini", f['content'], f['name'])
+    if st.button("Tutup Pratinjau"):
+        del st.session_state.view_file
+        st.rerun()
+
+# --- FITUR KONEKSI (Knowledge Link) ---
+st.divider()
+st.subheader("🔗 Koneksi Antar Pasal")
+st.caption("Contoh: Hubungkan Pasal 340 KUHP ke Putusan No. 12/2026")
+c1, c2 = st.columns(2)
+with c1:
+    source = st.text_input("Kalimat/Pasal A")
+with c2:
+    target = st.text_input("Terkoneksi ke Dokumen B")
+if st.button("Buat Tautan"):
+    st.success(f"Tautan Tercipta: {source} <---> {target}")
     

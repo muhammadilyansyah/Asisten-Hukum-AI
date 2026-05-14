@@ -129,4 +129,4 @@ with tab2:
     target = st.text_input("Terhubung ke B")
     if st.button("Simpan Hubungan"):
         st.success(f"Link Tersimpan: {source} → {target}")
-        
+    

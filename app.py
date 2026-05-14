@@ -3,129 +3,130 @@ import io
 from docx import Document
 from PyPDF2 import PdfReader
 
-# 1. SETUP LOGIKA PENYIMPANAN (Database Simulasi)
-if "file_system" not in st.session_state:
-    # Struktur Folder Awal
-    st.session_state.file_system = {
-        "Hukum": {
-            "Hukum Pidana": {
-                "Pidana Umum": {},
-                "Pidana Khusus": {},
-                "Files": [] # Tempat menyimpan file sesungguhnya
-            },
-            "Hukum Perdata": {
-                "Files": []
-            },
-            "Files": []
-        }
-    }
-if "current_path" not in st.session_state:
-    st.session_state.current_path = ["Hukum"]
+# 1. INISIALISASI SISTEM PENYIMPANAN
+if "fs" not in st.session_state:
+    st.session_state.fs = {"Hukum": {"_files": {}, "_sub": {}}}
+if "path" not in st.session_state:
+    st.session_state.path = ["Hukum"]
 
-# 2. FUNGSI NAVIGASI FOLDER
-def get_current_folder(fs, path):
-    curr = fs
-    for folder in path:
-        curr = curr[folder]
+# Fungsi Navigasi ke Folder Aktif
+def get_curr():
+    curr = st.session_state.fs
+    for p in st.session_state.path:
+        curr = curr[p]["_sub"]
     return curr
 
-# 3. TAMPILAN UTAMA
-st.set_page_config(page_title="Legal Folder Manager", layout="wide")
+def get_curr_files():
+    curr = st.session_state.fs
+    for p in st.session_state.path:
+        curr = curr[p]
+    return curr["_files"]
+
+# 2. SETUP HALAMAN
+st.set_page_config(page_title="Legal Workspace AI", layout="wide")
 
 if "auth" not in st.session_state:
-    st.title("⚖️ Digital Legal Archive")
-    if st.button("Login dengan Google"):
+    st.title("⚖️ Legal Private Workspace")
+    if st.button("Masuk dengan Akun Google"):
         st.session_state.auth = True
         st.rerun()
     st.stop()
 
-# --- SIDEBAR: NAVIGASI ---
+# --- SIDEBAR: NAVIGASI & STRUKTUR ---
 with st.sidebar:
-    st.header("📂 Explorer")
-    if st.button("🏠 Ke Root (Awal)"):
-        st.session_state.current_path = ["Hukum"]
+    st.title("📂 Explorer")
+    st.write(f"📍 `{' > '.join(st.session_state.path)}` ")
     
+    if len(st.session_state.path) > 1:
+        if st.button("⬅️ Kembali ke Atas"):
+            st.session_state.path.pop()
+            st.rerun()
+
     st.divider()
-    st.write(f"**Lokasi Saat Ini:** \n` {' > '.join(st.session_state.current_path)} `")
+    st.subheader("Buat Folder Baru")
+    new_f_name = st.text_input("Nama Folder:")
+    if st.button("Tambah Folder"):
+        if new_f_name:
+            get_curr()[new_f_name] = {"_files": {}, "_sub": {}}
+            st.rerun()
 
 # --- KONTEN UTAMA ---
-st.title("📚 Manajemen Dokumen Hukum")
+st.title("Sistem Manajemen Dokumen Hukum")
 
-curr_folder = get_current_folder(st.session_state.file_system, st.session_state.current_path)
+tab1, tab2 = st.tabs(["🗂️ Pengelola Folder & File", "🔗 Koneksi & AI"])
 
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    st.subheader("Sub-Folder")
-    # Menampilkan Folder di dalam Folder aktif
-    subfolders = [f for f in curr_folder.keys() if f != "Files"]
-    for f in subfolders:
-        if st.button(f"📁 {f}", key=f):
-            st.session_state.current_path.append(f)
-            st.rerun()
+with tab1:
+    col1, col2 = st.columns([1, 2])
     
+    # --- KOLOM 1: MANAJEMEN FOLDER ---
+    with col1:
+        st.subheader("Sub-Folder")
+        folders = get_curr()
+        if not folders:
+            st.info("Folder kosong")
+        for f_name in list(folders.keys()):
+            c_a, c_b = st.columns([4, 1])
+            if c_a.button(f"📁 {f_name}", use_container_width=True):
+                st.session_state.path.append(f_name)
+                st.rerun()
+            if c_b.button("🗑️", key=f"del_f_{f_name}"):
+                del folders[f_name]
+                st.rerun()
+
+    # --- KOLOM 2: MANAJEMEN FILE ---
+    with col2:
+        st.subheader("Dokumen di Folder Ini")
+        uploaded = st.file_uploader("Tambah Dokumen (PDF/Word)", type=['pdf', 'docx', 'txt'])
+        
+        if uploaded:
+            files = get_curr_files()
+            files[uploaded.name] = {
+                "content": uploaded.getvalue(),
+                "type": uploaded.type
+            }
+            st.toast("File ditambahkan!")
+
+        st.divider()
+        files = get_curr_files()
+        if not files:
+            st.write("Tidak ada file.")
+        for f_name in list(files.keys()):
+            f_col1, f_col2, f_col3 = st.columns([3, 1, 1])
+            f_col1.write(f"📄 {f_name}")
+            if f_col2.button("👁️ Lihat", key=f"view_{f_name}"):
+                st.session_state.viewing = files[f_name]
+                st.session_state.viewing_name = f_name
+            if f_col3.button("🗑️", key=f"del_f_{f_name}"):
+                del files[f_name]
+                st.rerun()
+
+# --- AREA BACA DOKUMEN (PREVIEW) ---
+if "viewing" in st.session_state:
     st.divider()
-    new_f = st.text_input("Buat Folder Baru:")
-    if st.button("Tambah Folder"):
-        if new_f and new_f not in curr_folder:
-            curr_folder[new_f] = {"Files": []}
-            st.success(f"Folder '{new_f}' dibuat")
-            st.rerun()
-
-with col2:
-    st.subheader("Daftar Dokumen")
-    # Upload File ke Folder ini
-    uploaded = st.file_uploader("Upload ke folder ini", type=['pdf', 'docx', 'txt'])
-    if uploaded:
-        if "Files" not in curr_folder: curr_folder["Files"] = []
-        # Simpan file ke dalam memori aplikasi
-        file_data = {
-            "name": uploaded.name,
-            "type": uploaded.type,
-            "content": uploaded.getvalue()
-        }
-        curr_folder["Files"].append(file_data)
-        st.toast("File berhasil disimpan!")
-
-    # Menampilkan File yang sudah tersimpan
-    if "Files" in curr_folder and curr_folder["Files"]:
-        for idx, f in enumerate(curr_folder["Files"]):
-            col_f1, col_f2 = st.columns([3, 1])
-            with col_f1:
-                st.write(f"📄 {f['name']}")
-            with col_f2:
-                if st.button("Buka/Baca", key=f"btn_{idx}"):
-                    st.session_state.view_file = f
-    else:
-        st.info("Belum ada dokumen di folder ini.")
-
-# --- FITUR BACA DOKUMEN ---
-if "view_file" in st.session_state:
-    st.divider()
-    st.header(f"📖 Membaca: {st.session_state.view_file['name']}")
-    f = st.session_state.view_file
+    st.header(f"📖 Pratinjau: {st.session_state.viewing_name}")
+    v_file = st.session_state.viewing
     
-    if f['type'] == "application/pdf":
-        st.warning("Pratinjau PDF: Gunakan tombol download di bawah untuk membaca lengkap.")
-    elif "word" in f['type'] or f['name'].endswith(".docx"):
-        doc = Document(io.BytesIO(f['content']))
-        full_text = "\n".join([para.text for para in doc.paragraphs])
-        st.text_area("Isi Dokumen:", full_text, height=400)
-    
-    st.download_button("Download File Ini", f['content'], f['name'])
+    try:
+        if "pdf" in v_file['type']:
+            reader = PdfReader(io.BytesIO(v_file['content']))
+            text = "".join([page.extract_text() for page in reader.pages])
+            st.text_area("Isi PDF (Teks):", text, height=300)
+        elif "word" in v_file['type'] or st.session_state.viewing_name.endswith(".docx"):
+            doc = Document(io.BytesIO(v_file['content']))
+            text = "\n".join([p.text for p in doc.paragraphs])
+            st.text_area("Isi Dokumen Word:", text, height=300)
+    except Exception as e:
+        st.error(f"Gagal membaca file: {e}")
+
     if st.button("Tutup Pratinjau"):
-        del st.session_state.view_file
+        del st.session_state.viewing
         st.rerun()
 
-# --- FITUR KONEKSI (Knowledge Link) ---
-st.divider()
-st.subheader("🔗 Koneksi Antar Pasal")
-st.caption("Contoh: Hubungkan Pasal 340 KUHP ke Putusan No. 12/2026")
-c1, c2 = st.columns(2)
-with c1:
-    source = st.text_input("Kalimat/Pasal A")
-with c2:
-    target = st.text_input("Terkoneksi ke Dokumen B")
-if st.button("Buat Tautan"):
-    st.success(f"Tautan Tercipta: {source} <---> {target}")
-    
+with tab2:
+    st.subheader("Hubungkan Antar Kalimat/Pasal")
+    st.write("Gunakan fitur ini untuk menyambungkan poin hukum.")
+    source = st.text_input("Kalimat A")
+    target = st.text_input("Terhubung ke B")
+    if st.button("Simpan Hubungan"):
+        st.success(f"Link Tersimpan: {source} → {target}")
+        
